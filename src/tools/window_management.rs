@@ -125,6 +125,14 @@ async fn execute_window_action(params: WindowManagementParams) -> Result<String>
 
 async fn list_windows(shell_proxy: &zbus::Proxy<'_>) -> Result<String> {
     let script = r#"
+        function isMaximized(w) {
+            if (typeof w.get_maximized === 'function') {
+                return Boolean(w.get_maximized());
+            }
+
+            return Boolean(w.maximized_horizontally && w.maximized_vertically);
+        }
+
         let windows = global.get_window_actors()
             .map(w => w.get_meta_window())
             .filter(w => w.get_window_type() === Meta.WindowType.NORMAL && !w.is_skip_taskbar())
@@ -134,7 +142,7 @@ async fn list_windows(shell_proxy: &zbus::Proxy<'_>) -> Result<String> {
                 wm_class: w.get_wm_class(),
                 workspace: w.get_workspace().index(),
                 minimized: w.minimized,
-                maximized: w.get_maximized(),
+                maximized: isMaximized(w),
                 focused: w.has_focus()
             }));
         JSON.stringify(windows);
@@ -211,12 +219,20 @@ async fn minimize_window(shell_proxy: &zbus::Proxy<'_>, window_id: &str) -> Resu
 async fn maximize_window(shell_proxy: &zbus::Proxy<'_>, window_id: &str) -> Result<String> {
     let script = format!(
         r#"
+        function isMaximized(w) {{
+            if (typeof w.get_maximized === 'function') {{
+                return Boolean(w.get_maximized());
+            }}
+
+            return Boolean(w.maximized_horizontally && w.maximized_vertically);
+        }}
+
         let windows = global.get_window_actors()
             .map(w => w.get_meta_window())
             .filter(w => w.get_id() === {window_id});
         if (windows.length > 0) {{
             let window = windows[0];
-            if (window.get_maximized()) {{
+            if (isMaximized(window)) {{
                 window.unmaximize(Meta.MaximizeFlags.BOTH);
                 'unmaximized';
             }} else {{
