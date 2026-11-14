@@ -158,3 +158,5 @@ See `gnome-mcp-config.example.json` for a complete example.
 ---
 
 *Co-authored by Claude*
+
+For hosted checks and artifacts, see [continuous integration](docs/CI.md).

@@ -2,85 +2,279 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: 29 6 * * 3
 
 jobs:
   ci:
-    name: CI
+    name: Rust ${{ matrix.rust }} (${{ matrix.arch }})
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest]
-        rust: [stable, beta]
+        arch:
+          - x86_64
+          - aarch64
+        rust:
+          - stable
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8  # master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy, rustfmt
 
-    - name: Install Rust ${{ matrix.rust }}
-      uses: dtolnay/rust-toolchain@master
-      with:
-        toolchain: ${{ matrix.rust }}
-        components: clippy, rustfmt
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libglib2.0-dev
+      - name: Cache cargo dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ matrix.arch }}-${{ runner.os }}-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-    - name: Cache cargo dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Check formatting
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee -a .ci-results/rust.log
 
-    - name: Check formatting
-      run: cargo fmt --all -- --check
 
-    - name: Run clippy
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run clippy
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo clippy --locked --all-targets --all-features -- -D warnings 2>&1 | tee -a .ci-results/rust.log
 
-    - name: Check build
-      run: cargo check
 
-    - name: Build debug
-      run: cargo build
+      - name: Check build
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo check --locked 2>&1 | tee -a .ci-results/rust.log
 
-    - name: Build release
-      run: cargo build --release
 
-    - name: Run tests
-      run: cargo test
+      - name: Build debug
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo build --locked 2>&1 | tee -a .ci-results/rust.log
 
-    - name: Run tests with all features
-      run: cargo test --all-features
 
+      - name: Build release
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo build --release --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Run tests
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo test --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Run tests with all features
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo test --all-features --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Exercise built stdio protocol with read-only fixture requests
+        run: dbus-run-session -- python3 scripts/ci/protocol-smoke.py target/release/gnome-mcp-server
+      - name: Package tested native binary
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+          RUST_CHANNEL: ${{ matrix.rust }}
+        run: |
+          mkdir -p .ci-results/package
+          cp target/release/gnome-mcp-server .ci-results/package/
+          printf 'Built checkout: %s\nArchitecture: %s\nRust channel: %s\n' "$GITHUB_SHA" "$BUILD_ARCH" "$RUST_CHANNEL" > .ci-results/package/BUILD_INFO.txt
+          rustc -Vv >> .ci-results/package/BUILD_INFO.txt
+          tar -C .ci-results/package -czf ".ci-results/gnome-mcp-server-$BUILD_ARCH.tar.gz" .
+          (cd .ci-results && sha256sum -- ./*.tar.gz > SHA256SUMS)
+      - name: Retain native package and diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gnome-mcp-server-${{ matrix.arch }}-${{ matrix.rust }}-${{ github.sha }}
+          path: .ci-results/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
   typos:
     name: Typos
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Check for typos
-      uses: crate-ci/typos@master
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - name: Check for typos
+        uses: crate-ci/typos@aa7e5314d3f3fc71e2522f80fca1e6ffcc3ce7db  # master
+    timeout-minutes: 30
   cargo-deny:
     name: Cargo Deny
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@189504a963cde105ae7493e3447085686df99d38  # cargo-deny
+      - name: Run cargo-deny
+        run: cargo deny check
+    timeout-minutes: 30
+  compatibility:
+    name: Beta Rust compatibility (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x86_64
+          - aarch64
+        rust:
+          - beta
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
 
-    - name: Install cargo-deny
-      uses: taiki-e/install-action@cargo-deny
+    runs-on: ${{ matrix.runner }}
 
-    - name: Run cargo-deny
-      run: cargo deny check
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7
+        with:
+          persist-credentials: false
+      - name: Install Rust ${{ matrix.rust }}
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8  # master
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy, rustfmt
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev
+
+      - name: Cache cargo dependencies
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ matrix.arch }}-${{ runner.os }}-${{ matrix.rust }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check formatting
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo fmt --all -- --check 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Run clippy
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo clippy --locked --all-targets --all-features -- -D warnings 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Check build
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo check --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Build debug
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo build --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Build release
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo build --release --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Run tests
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo test --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Run tests with all features
+        run: |
+          mkdir -p .ci-results
+          set -o pipefail
+          cargo test --all-features --locked 2>&1 | tee -a .ci-results/rust.log
+
+
+      - name: Exercise built stdio protocol with read-only fixture requests
+        run: dbus-run-session -- python3 scripts/ci/protocol-smoke.py target/release/gnome-mcp-server
+      - name: Package tested native binary
+        env:
+          BUILD_ARCH: ${{ matrix.arch }}
+          RUST_CHANNEL: ${{ matrix.rust }}
+        run: |
+          mkdir -p .ci-results/package
+          cp target/release/gnome-mcp-server .ci-results/package/
+          printf 'Built checkout: %s\nArchitecture: %s\nRust channel: %s\n' "$GITHUB_SHA" "$BUILD_ARCH" "$RUST_CHANNEL" > .ci-results/package/BUILD_INFO.txt
+          rustc -Vv >> .ci-results/package/BUILD_INFO.txt
+          tar -C .ci-results/package -czf ".ci-results/gnome-mcp-server-$BUILD_ARCH.tar.gz" .
+          (cd .ci-results && sha256sum -- ./*.tar.gz > SHA256SUMS)
+      - name: Retain native package and diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: gnome-mcp-server-${{ matrix.arch }}-${{ matrix.rust }}-${{ github.sha }}
+          path: .ci-results/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: warn
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+permissions:
+  contents: read
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
