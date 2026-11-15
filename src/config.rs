@@ -96,6 +96,9 @@ impl Default for AudioToolConfig {
 pub struct QuickSettingsConfig {}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MonitorsConfig {}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ScreenshotConfig {
     /// Show interactive dialog by default
     #[serde(default)]
@@ -140,6 +143,7 @@ pub struct ToolsConfig {
     pub wallpaper: Option<WallpaperConfig>,
     pub audio: Option<AudioToolConfig>,
     pub quick_settings: Option<QuickSettingsConfig>,
+    pub monitors: Option<MonitorsConfig>,
     pub screenshot: Option<ScreenshotConfig>,
     pub window_management: Option<WindowManagementConfig>,
     pub keyring: Option<KeyringConfig>,
@@ -154,6 +158,7 @@ impl Default for ToolsConfig {
             wallpaper: Some(WallpaperConfig::default()),
             audio: Some(AudioToolConfig::default()),
             quick_settings: Some(QuickSettingsConfig::default()),
+            monitors: Some(MonitorsConfig::default()),
             screenshot: Some(ScreenshotConfig::default()),
             window_management: Some(WindowManagementConfig::default()),
             keyring: Some(KeyringConfig::default()),
@@ -229,6 +234,7 @@ impl Config {
             crate::tools::audio::Volume::NAME | crate::tools::audio::Media::NAME => {
                 self.tools.audio.is_some()
             }
+            crate::tools::monitors::Monitors::NAME => self.tools.monitors.is_some(),
             crate::tools::quick_settings::QuickSettings::NAME => {
                 self.tools.quick_settings.is_some()
             }
@@ -269,6 +275,14 @@ pub static CONFIG: LazyLock<Config> = LazyLock::new(|| Config::load_default().un
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monitor_discovery_respects_tool_configuration() {
+        let mut config = Config::default();
+        assert!(config.is_tool_enabled::<crate::tools::monitors::Monitors>());
+        config.tools.monitors = None;
+        assert!(!config.is_tool_enabled::<crate::tools::monitors::Monitors>());
+    }
 
     #[test]
     fn test_resource_enabled_default() {

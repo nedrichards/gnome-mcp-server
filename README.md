@@ -4,10 +4,12 @@ Grant the AI octopus access to a portion of your desktop with a Model Context Pr
 
 ## Installation
 
+Rust 1.95 or newer and the GIO development files are required.
+
 To build and install the MCP server to your system:
 
 ```bash
-cargo install --path .
+cargo install --locked --path .
 ```
 
 The resulting binary will typically be under `~/.cargo/bin/gnome-mcp-server`.
@@ -18,6 +20,9 @@ To use this MCP server, you need to configure an MCP client. The configuration v
 - Transport: `stdio`
 - Command: `gnome-mcp-server` (assuming `~/.cargo/bin` is in your PATH)
 - Args: `[]` (empty list)
+
+Stdout is reserved exclusively for JSON-RPC messages. Startup logs and diagnostics
+go to stderr; portal registration is best-effort and does not prevent startup.
 
 ## Clients
 
@@ -108,8 +113,16 @@ Config:
 - **setting** (string, required): wifi, bluetooth, night_light, do_not_disturb, dark_style
 - **enabled** (boolean, required): Enable/disable state
 
+#### `get_monitors`
+
+Read-only discovery of connected outputs, current modes and logical desktop
+positions/scales. Takes an empty argument object. Enable with `"monitors": {}` in
+the tools configuration. Does not require Shell unsafe mode and omits device
+serial numbers.
+
 #### `take_screenshot`
-- **interactive** (boolean, optional): Show selection dialog
+- **interactive** (boolean, optional): Show selection dialog. Cancellation or
+  permission refusal does not fall back to another capture backend.
 
 Config:
 ```json
@@ -119,7 +132,7 @@ Config:
 ```
 
 #### `window_management`
-- **action** (string, required): list, focus, close, minimize, maximize, switch_workspace, move_to_workspace, get_geometry, set_geometry, set_position, set_size, snap
+- **action** (string, required): list, list_workspaces, focus, close, minimize, maximize, switch_workspace, move_to_workspace, get_geometry, set_geometry, set_position, set_size, snap
 - **window_id** (string, optional): Window ID for window-specific actions
 - **workspace** (integer, optional): Workspace number (0-indexed)
 - **x** (integer, optional): X coordinate
@@ -160,3 +173,5 @@ See `gnome-mcp-config.example.json` for a complete example.
 *Co-authored by Claude*
 
 For hosted checks and artifacts, see [continuous integration](docs/CI.md).
+The [upstream issue and PR review](docs/UPSTREAM_REVIEW.md) records implemented
+features and the evaluation of the remaining requests.

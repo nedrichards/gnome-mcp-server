@@ -25,10 +25,11 @@ root.mkdir(exist_ok=True)
 (root / "protocol.stderr").write_text(result.stderr)
 responses = {}
 for line in result.stdout.splitlines():
-    if line.startswith("{"):
-        value = json.loads(line)
-        if "id" in value:
-            responses[value["id"]] = value
+    value = json.loads(line)
+    if value.get("jsonrpc") != "2.0":
+        raise RuntimeError("Server emitted non-protocol stdout")
+    if "id" in value:
+        responses[value["id"]] = value
 if set(responses) != {1, 2, 3}:
     raise RuntimeError("Built server did not reply to all fixture requests")
 if responses[1]["result"]["serverInfo"]["name"] != "gnome-mcp-server":

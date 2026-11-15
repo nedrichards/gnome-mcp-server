@@ -15,6 +15,7 @@ register_providers! {
     ],
     tools: [
         crate::tools::notifications::Notifications,
+        crate::tools::monitors::Monitors,
         crate::tools::applications::Applications,
         crate::tools::open_file::OpenFile,
         crate::tools::wallpaper::Wallpaper,

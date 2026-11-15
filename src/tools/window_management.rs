@@ -26,7 +26,7 @@ pub struct WindowManagement;
 
 tool_params! {
     WindowManagementParams,
-    required(action: string, "Action to perform: 'list', 'focus', 'close', 'minimize', 'maximize', 'switch_workspace', 'move_to_workspace', 'get_geometry', 'set_geometry', 'set_position', 'set_size', 'snap'"),
+    required(action: string, "Action to perform: 'list', 'list_workspaces', 'focus', 'close', 'minimize', 'maximize', 'switch_workspace', 'move_to_workspace', 'get_geometry', 'set_geometry', 'set_position', 'set_size', 'snap'"),
     optional(window_id: string, "Window ID for focus/close/minimize/maximize/move_to_workspace/geometry actions"),
     optional(workspace: i64, "Workspace number for switch_workspace/move_to_workspace actions (0-based)"),
     optional(x: i64, "X coordinate for set_geometry/set_position actions"),
@@ -38,7 +38,7 @@ tool_params! {
 
 impl ToolProvider for WindowManagement {
     const NAME: &'static str = "window_management";
-    const DESCRIPTION: &'static str = "Manage windows and workspaces via GNOME Shell (requires unsafe mode). Actions: list, focus, close, minimize, maximize, switch_workspace, move_to_workspace, get_geometry, set_geometry, set_position, set_size, snap. Note: Workspaces are 0-indexed (workspace 0 is the first workspace, workspace 1 is the second, etc.). You cannot move windows to or switch to workspaces that don't exist yet - GNOME may create workspaces dynamically or use a fixed number depending on user configuration.";
+    const DESCRIPTION: &'static str = "Manage windows and workspaces via GNOME Shell (requires unsafe mode). Actions: list, list_workspaces, focus, close, minimize, maximize, switch_workspace, move_to_workspace, get_geometry, set_geometry, set_position, set_size, snap. Note: Workspaces are 0-indexed (workspace 0 is the first workspace, workspace 1 is the second, etc.). You cannot move windows to or switch to workspaces that don't exist yet - GNOME may create workspaces dynamically or use a fixed number depending on user configuration.";
     type Params = WindowManagementParams;
 
     async fn execute_with_params(&self, params: Self::Params) -> Result<serde_json::Value> {
@@ -65,6 +65,7 @@ async fn execute_window_action(params: WindowManagementParams) -> Result<String>
 
     match params.action.as_str() {
         "list" => list_windows(&shell_proxy).await,
+        "list_workspaces" => list_workspaces(&shell_proxy).await,
         "focus" => {
             let id = params.window_id.ok_or_else(|| anyhow::anyhow!("window_id required for focus action"))?;
             focus_window(&shell_proxy, &id).await
@@ -122,6 +123,23 @@ async fn execute_window_action(params: WindowManagementParams) -> Result<String>
         _ => Err(anyhow::anyhow!("Unknown action: {}. Available: list, focus, close, minimize, maximize, switch_workspace, move_to_workspace, get_geometry, set_geometry, set_position, set_size, snap", params.action)),
     }
 }
+
+async fn list_workspaces(shell_proxy: &zbus::Proxy<'_>) -> Result<String> {
+    let result = eval_shell_script(shell_proxy, WORKSPACE_LIST_SCRIPT).await?;
+    let workspaces: serde_json::Value = serde_json::from_str(&result)?;
+    Ok(format!(
+        "Workspaces:\n{}",
+        serde_json::to_string_pretty(&workspaces)?
+    ))
+}
+
+const WORKSPACE_LIST_SCRIPT: &str = r#"
+    JSON.stringify(Array.from({length: global.workspace_manager.n_workspaces}, (_, index) => ({
+        index,
+        active: index === global.workspace_manager.get_active_workspace_index(),
+        window_count: global.workspace_manager.get_workspace_by_index(index).list_windows().length
+    })));
+"#;
 
 async fn list_windows(shell_proxy: &zbus::Proxy<'_>) -> Result<String> {
     let script = r#"
@@ -453,4 +471,42 @@ async fn snap_window(
 
     let result = eval_shell_script(shell_proxy, &script).await?;
     Ok(format!("Window {window_id} {result}"))
+}
+
+#[cfg(test)]
+mod workspace_tests {
+    use super::*;
+
+    struct ShellFixture;
+
+    #[zbus::interface(name = "org.gnome.Shell")]
+    impl ShellFixture {
+        fn eval(&self, script: &str) -> (bool, String) {
+            assert_eq!(script, WORKSPACE_LIST_SCRIPT);
+            (true, r#"[{"index":0,"active":true,"window_count":2},{"index":1,"active":false,"window_count":0}]"#.into())
+        }
+    }
+
+    #[tokio::test]
+    async fn lists_active_and_empty_workspaces_without_mutation() {
+        let (_server, client) =
+            crate::test_support::peer_pair(ShellFixture, "/org/gnome/Shell").await;
+        let proxy = zbus::Proxy::new(
+            &client,
+            "org.gnome.Shell",
+            "/org/gnome/Shell",
+            "org.gnome.Shell",
+        )
+        .await
+        .unwrap();
+        let output =
+            tokio::time::timeout(std::time::Duration::from_secs(5), list_workspaces(&proxy))
+                .await
+                .unwrap()
+                .unwrap();
+        let workspaces: serde_json::Value =
+            serde_json::from_str(output.strip_prefix("Workspaces:\n").unwrap()).unwrap();
+        assert_eq!(workspaces[0]["active"], true);
+        assert_eq!(workspaces[1]["window_count"], 0);
+    }
 }

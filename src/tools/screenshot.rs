@@ -27,35 +27,24 @@ impl ToolProvider for Screenshot {
 }
 
 async fn take_screenshot_portal(interactive: bool) -> Result<String> {
-    let portal_result = match ScreenshotPortal::request()
-        .interactive(interactive)
-        .send()
-        .await
-    {
-        Ok(request) => match request.response() {
-            Ok(response) => {
-                let uri = response.uri();
-                if interactive {
-                    Ok(format!(
-                        "Interactive screenshot completed. File saved to: {uri}"
-                    ))
-                } else {
-                    Ok(format!("Screenshot taken. File saved to: {uri}"))
-                }
-            }
-            Err(error) => Err(anyhow::anyhow!(
-                "Screenshot was cancelled or failed {}",
-                error
-            )),
-        },
-        Err(error) => Err(anyhow::anyhow!(
-            "Screenshot was cancelled or failed {}",
-            error
-        )),
-    };
+    let portal_result: std::result::Result<String, ashpd::Error> = async {
+        let response = ScreenshotPortal::request()
+            .interactive(interactive)
+            .send()
+            .await?
+            .response()?;
+        let uri = response.uri();
+        Ok(if interactive {
+            format!("Interactive screenshot completed. File saved to: {uri}")
+        } else {
+            format!("Screenshot taken. File saved to: {uri}")
+        })
+    }
+    .await;
 
     match portal_result {
         Ok(result) => Ok(result),
+        Err(portal_error) if !fallback_allowed(&portal_error) => Err(portal_error.into()),
         Err(portal_error) => {
             let shell_result = if interactive {
                 take_interactive_screenshot_shell().await
@@ -120,5 +109,41 @@ async fn take_interactive_screenshot_shell() -> Result<String> {
         ))
     } else {
         Err(anyhow::anyhow!("GNOME Shell interactive screenshot failed"))
+    }
+}
+
+// A negative portal response is final; never capture through another backend
+// after the user cancels or permission is refused.
+fn fallback_allowed(error: &ashpd::Error) -> bool {
+    match error {
+        ashpd::Error::Response(_) => false,
+        ashpd::Error::Portal(
+            ashpd::PortalError::Cancelled(_) | ashpd::PortalError::NotAllowed(_),
+        ) => false,
+        ashpd::Error::Zbus(zbus::Error::MethodError(name, _, _)) => !matches!(
+            name.as_str(),
+            "org.freedesktop.DBus.Error.AccessDenied"
+                | "org.freedesktop.portal.Error.NotAllowed"
+                | "org.freedesktop.portal.Error.Cancelled"
+        ),
+        _ => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancellation_and_denial_do_not_fall_back_to_shell_capture() {
+        assert!(!fallback_allowed(&ashpd::Error::Response(
+            ashpd::desktop::ResponseError::Cancelled
+        )));
+        assert!(!fallback_allowed(&ashpd::Error::Portal(
+            ashpd::PortalError::NotAllowed("fixture denial".into())
+        )));
+        assert!(fallback_allowed(&ashpd::Error::PortalNotFound(
+            "org.freedesktop.portal.Screenshot".try_into().unwrap()
+        )));
     }
 }
