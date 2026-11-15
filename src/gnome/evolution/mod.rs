@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use gio::glib;
-use zbus::zvariant::OwnedObjectPath;
+use zbus::OwnedObjectPath;
 
 pub mod contact;
 pub mod event;
@@ -85,8 +85,8 @@ pub async fn get_evolution_sources(
     connection: &zbus::Connection,
 ) -> Result<HashMap<OwnedObjectPath, (SourceInfo, zbus::Proxy<'static>)>> {
     let proxy = zbus::fdo::ObjectManagerProxy::builder(connection)
-        .destination("org.gnome.evolution.dataserver.Sources5")?
-        .path("/org/gnome/evolution/dataserver/SourceManager")?
+        .destination("org.gnome.evolution.dataserver.Sources5")
+        .path("/org/gnome/evolution/dataserver/SourceManager")
         .build()
         .await?;
     let mut sources = HashMap::new();

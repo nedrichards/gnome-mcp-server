@@ -21,32 +21,7 @@ wildcards = "allow"
 highlight = "all"
 # List of crates that are allowed. Use with care!
 allow = []
-skip = [
-    # Skip older wasi version (keep 0.14.2, skip 0.11.1)
-    {name = "wasi", version = "0.11.1+wasi-snapshot-preview1"},
-
-    # Skip older windows-sys version (keep 0.60.2, skip 0.52.0 and 0.59.0)
-    {name = "windows-sys", version = "0.52.0"},
-    {name = "windows-sys", version = "0.59.0"},
-
-    # Skip older windows-targets version (keep 0.53.2, skip 0.52.6)
-    {name = "windows-targets", version = "0.52.6"},
-
-    # Skip older windows platform-specific crates (keep 0.53.0 versions, skip 0.52.6)
-    {name = "windows_aarch64_gnullvm", version = "0.52.6"},
-    {name = "windows_aarch64_msvc", version = "0.52.6"},
-    {name = "windows_i686_gnu", version = "0.52.6"},
-    {name = "windows_i686_gnullvm", version = "0.52.6"},
-    {name = "windows_i686_msvc", version = "0.52.6"},
-    {name = "windows_x86_64_gnu", version = "0.52.6"},
-    {name = "windows_x86_64_gnullvm", version = "0.52.6"},
-    {name = "windows_x86_64_msvc", version = "0.52.6"},
-
-    {name = "getrandom", version = "0.2.16"},
-    {name = "rand", version = "0.8.5"},
-    {name = "rand_chacha", version = "0.3.1"},
-    {name = "rand_core", version = "0.6.4"},
-]
+skip = []
 
 
 [advisories]

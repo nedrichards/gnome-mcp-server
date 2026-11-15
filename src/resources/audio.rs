@@ -147,7 +147,7 @@ async fn get_player_info(connection: &zbus::Connection, player: &str) -> Result<
         .await
         .unwrap_or_else(|_| player.to_string());
 
-    let metadata: HashMap<String, zbus::zvariant::Value> = player_proxy
+    let metadata: HashMap<String, zbus::OwnedVariant> = player_proxy
         .get_property("Metadata")
         .await
         .unwrap_or_default();
@@ -159,7 +159,7 @@ async fn get_player_info(connection: &zbus::Connection, player: &str) -> Result<
 
     let artist = metadata
         .get("xesam:artist")
-        .and_then(|v| v.clone().downcast::<Vec<String>>().ok())
+        .and_then(|v| Vec::<String>::try_from(v.clone()).ok())
         .and_then(|artists| artists.first().map(ToOwned::to_owned))
         .unwrap_or("Unknown".to_owned());
 
